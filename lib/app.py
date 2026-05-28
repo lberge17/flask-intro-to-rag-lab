@@ -16,20 +16,50 @@ def create_app():
 
     @app.post("/api/ask")
     def ask_question():
-        """Accept a query and return a source-backed generated answer.
+        payload = request.get_json(silent=True) or {}
+        query = payload.get("query")
 
-        TODO:
-        1. Read JSON request data safely.
-        2. Validate that `query` is a non-empty string.
-        3. Retrieve relevant context from COMPANY_DOCUMENTS.
-        4. If no context is found, return a safe fallback with an empty sources list.
-        5. Build a structured prompt from the selected context.
-        6. Call generate_response(prompt).
-        7. Return query, answer, and sources as JSON.
-        8. If generate_response raises RuntimeError, return a 503 service error.
-        """
-        # TODO: Replace this placeholder response with your implementation.
-        return jsonify({"message": "TODO: implement /api/ask"}), 501
+        if not isinstance(query, str) or not query.strip():
+            return (
+                jsonify(
+                    {
+                        "error": "A non-empty 'query' string is required.",
+                        "example": {"query": "How do I request software access?"},
+                    }
+                ),
+                400,
+            )
+
+        clean_query = query.strip()
+        context_matches = retrieve_context(clean_query, COMPANY_DOCUMENTS, limit=2)
+        sources = [source_metadata(match) for match in context_matches]
+
+        if not context_matches:
+            return (
+                jsonify(
+                    {
+                        "query": clean_query,
+                        "answer": "The approved company documents do not contain enough information to answer that question.",
+                        "sources": [],
+                    }
+                ),
+                200,
+            )
+        prompt = build_prompt(clean_query, context_matches)
+
+        try:
+            answer = generate_response(prompt)
+        except RuntimeError as error:
+            return (
+                jsonify(
+                    {
+                        "error": f"The model service could not generate a response: {error}",
+                    }
+                ),
+                503,
+            )
+
+        return jsonify({"query": clean_query, "answer": answer, "sources": sources}), 200
 
     return app
 
